@@ -1,0 +1,149 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local UpdateBilboard = ReplicatedStorage:WaitForChild("UpdateBillboard")
+local PlayerSpawn = ReplicatedStorage:WaitForChild("PlayerSpawn")
+
+local BillboardTemplate = ReplicatedStorage:WaitForChild("BillboardTemplate")
+
+local InGame = false
+
+local function addBillboard(character, player)
+	local head = character:WaitForChild("Head")
+	player.Character.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+
+	local billboard = BillboardTemplate:Clone()
+	billboard.Adornee = head
+	billboard.Parent = head
+
+	billboard.NameText.Text = player.DisplayName
+	billboard.TeamText.Text = "Team: " .. player.Team.Name
+	billboard.TeamText.TextColor = player.Team.TeamColor
+	
+	local PhysicsService = game:GetService("PhysicsService")
+
+	for _, obj in ipairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.CollisionGroup = "Player" .. tostring(player.Team.Name) 
+			print(tostring("Player" .. tostring(player.Team.Name)))
+		end
+	end
+end
+
+local function UpdateBillboard(character, player, loadout, teamVisible)
+	if not character then return end
+	local head = character:FindFirstChild("Head")
+	if not head then return end
+
+	local billboard = head:FindFirstChild("BillboardTemplate")
+	if not billboard then
+		warn("Billboard not found on", player.Name)
+		return
+	end
+	
+	if teamVisible then 
+		billboard.ClassText.Visible = true
+		billboard.TeamText.Visible = true
+		billboard.NameText.Position = UDim2.new(0, 0, 0.1, 0)
+		billboard.TeamText.Text = "Team: " .. player.Team.Name
+		billboard.TeamText.TextColor3 = player.Team.TeamColor.Color
+	else
+		billboard.ClassText.Visible = false
+		billboard.TeamText.Visible = false
+		billboard.NameText.Position = UDim2.new(0, 0, 0.3, 0)
+		return
+	end
+
+	if loadout == "Fighter" then
+		billboard.ClassText.Text = "Fighter ⚔"
+		billboard.ClassText.TextColor3 = Color3.fromRGB(255, 242, 101)
+
+	elseif loadout == "Explosive" then
+		billboard.ClassText.Text = "Explosive 💣"
+		billboard.ClassText.TextColor3 = Color3.fromRGB(255, 166, 87)
+
+	elseif loadout == "Spy" then
+		billboard.ClassText.Text = "Spy 🕵"
+		billboard.ClassText.TextColor3 = Color3.fromRGB(159, 159, 159)
+	elseif loadout == "Hacker" then
+		billboard.ClassText.Text = "Hacker 🧑‍💻"
+		billboard.ClassText.TextColor3 = Color3.fromRGB(90, 90, 90)
+	elseif loadout == "Gearzoid" then
+		billboard.ClassText.Text = "Gearzoid 🤖"
+		billboard.ClassText.TextColor3 = Color3.fromRGB(209, 209, 209)
+	else
+		billboard.ClassText.Text = "Unknown"
+		billboard.ClassText.TextColor3 = Color3.new(1,1,1)
+	end
+	
+	print("Server sees class:", player.Class.Value)
+
+end
+
+local function onPlayerDeath(victim, killer)
+	if killer and killer:IsA("Player") then
+		local kills = killer:FindFirstChild("leaderstats") and killer.leaderstats:FindFirstChild("Kills")
+		if kills then
+			kills.Value = kills.Value + 1
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.Neutral = false
+	player.Team = game.Teams.Lobby
+	player.CharacterAdded:Connect(function(character)
+		if InGame then
+			ReplicatedStorage.ShowUi:FireAllClients()
+		end
+		PlayerSpawn:FireClient(player, character)
+		addBillboard(character, player)
+		UpdateBillboard(character, player, nil, false)
+		
+		ReplicatedStorage.GameStart.OnServerEvent:Connect(function()
+			InGame = true
+			character.Humanoid.WalkSpeed = 0
+			
+			for i, v in pairs(player.Backpack:GetChildren()) do
+				v:Destroy()
+			end
+			for i, v in pairs(character:GetChildren()) do
+				if v:IsA("Tool") then
+					v:Destroy()
+				end
+			end
+
+			local classValue = player:WaitForChild("Class")
+			UpdateBillboard(character, player, classValue.Value, true)
+
+			classValue.Changed:Connect(function(newValue)
+				UpdateBillboard(character, player, newValue, true)
+			end)
+			
+			local humanoid = character:WaitForChild("Humanoid")
+			humanoid.Died:Connect(function()
+				
+				local killer = humanoid:FindFirstChild("creator")
+				if killer and killer.Value then
+					local killerPlayer = killer.Value
+					if killerPlayer:IsA("Player") then
+						onPlayerDeath(player, killerPlayer)
+					end
+				end
+				
+			end)
+		end)
+		
+		ReplicatedStorage.GameEnd.OnServerEvent:Connect(function(kill)
+			InGame = false
+			player.Team = game.Teams.Lobby
+			character.Humanoid.WalkSpeed = 16
+			UpdateBillboard(character, player, nil, false)
+		end)
+	end)
+end)
+
+UpdateBilboard.OnServerEvent:Connect(function(player, loadout)
+	player.Character.Humanoid.WalkSpeed = 16
+	player.Class.Value = loadout
+end)
